@@ -2,7 +2,11 @@
 
 # EDAgent
 
+Your personal Exploratory Data Analyst + AI Agent
+
 **Drop in a CSV. Get a complete EDA — automatically.**
+<img width="1878" height="867" alt="image" src="https://github.com/user-attachments/assets/5919cf06-af14-452a-90ad-ba3caaf27906" />
+
 
 An agentic, LLM-powered Exploratory Data Analysis pipeline built with LangGraph and Ollama.  
 Nine specialized AI agents analyze your dataset, then generate a polished HTML report — all running **100% locally**.
@@ -24,6 +28,7 @@ You give it a CSV. It spins up a **9-stage LangGraph pipeline** where each node 
 - A **rich, color-coded terminal output** (if run via CLI)
 - A **self-contained `report.html`** — dark-themed, browser-ready, heatmap embedded inline
 - A **`correlation_heatmap.png`** saved to `output/`
+<img width="560" height="605" alt="image" src="https://github.com/user-attachments/assets/96cc9812-567a-40b4-9086-2119cd6626de" />
 
 ---
 
@@ -151,3 +156,4 @@ llm = ChatOllama(model="your-model-here")
 ## License
 
 MIT
+Created by Varnit :)
