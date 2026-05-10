@@ -51,6 +51,9 @@ Each node runs a Python analysis tool first, then passes the raw result to the L
 | 7 | **Synthesis** | Full EDA narrative — overview, issues, patterns, recommendations |
 | 8 | **Model Recommendation** | Infers problem type, recommends models, flags uncertainty, suggests metrics |
 | 9 | **Feature Engineering** | Suggests concrete new features: log transforms, bins, interactions, encodings |
+<img width="482" height="283" alt="image" src="https://github.com/user-attachments/assets/b716f1f9-e3d6-4cd3-b621-0e239cf0036f" />
+<img width="1070" height="352" alt="image" src="https://github.com/user-attachments/assets/722b1a1c-5b75-4838-bedd-9df220b3f19d" />
+
 
 ---
 
