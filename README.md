@@ -14,7 +14,6 @@ Nine specialized AI agents analyze your dataset, then generate a polished HTML r
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)
 ![LangGraph](https://img.shields.io/badge/LangGraph-agentic-blueviolet?style=flat-square)
 ![Ollama](https://img.shields.io/badge/Ollama-local%20LLM-orange?style=flat-square)
-![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
 </div>
 
@@ -161,7 +160,4 @@ llm = ChatOllama(model="your-model-here")
 
 ---
 
-## License
-
-MIT
 Created by Varnit :)
