@@ -206,9 +206,10 @@ You are a senior ML engineer. Based on the EDA findings below, recommend which M
 Your response must include:
 1. **Problem Type**: Classification, Regression, or Clustering? Which column is the likely target and why?
 2. **Primary Model Recommendation**: Best model with justification based on data characteristics.
-3. **Uncertainty Check**: If torn between 2 models, say so explicitly and recommend Random Forest as a neutral benchmark. Specify which metric to compare on and why.
-4. **Self-Analysis**: What could go wrong with your recommendation? What assumptions are you making?
-5. **Quick-Start Checklist**: 3-5 concrete prep steps before training.
+3. **Evaluation Metrics**: Recommend the best metrics to evaluate the model (e.g., accuracy_score vs recall_score for classification, RMSE vs MAE for regression) and explicitly explain WHY based on the dataset (e.g., class imbalance, cost of false negatives).
+4. **Uncertainty Check**: If torn between 2 models, say so explicitly and recommend Random Forest as a neutral benchmark. Specify which metric to compare on and why.
+5. **Self-Analysis**: What could go wrong with your recommendation? What assumptions are you making?
+6. **Quick-Start Checklist**: 3-5 concrete prep steps before training.
 
 SCHEMA: {state['schema']}
 QUALITY: {state['quality']}
