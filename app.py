@@ -171,7 +171,7 @@ if uploaded is not None:
     col3.metric("Missing Values", int(df.isnull().sum().sum()))
     col4.metric("Duplicate Rows", int(df.duplicated().sum()))
 
-    st.dataframe(df.head(10), use_container_width=True)
+    st.dataframe(df.head(10), width="stretch")
 
     st.markdown("---")
 
@@ -247,7 +247,7 @@ if "result" in st.session_state:
         st.markdown(result["correlation"])
         heatmap_path = "output/correlation_heatmap.png"
         if os.path.exists(heatmap_path):
-            st.image(heatmap_path, caption="Pearson Correlation Heatmap", use_container_width=True)
+            st.image(heatmap_path, caption="Pearson Correlation Heatmap", width="stretch")
 
     with tabs[5]:
         st.markdown("#### Feature Importance")

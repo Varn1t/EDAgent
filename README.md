@@ -48,12 +48,12 @@ Each node runs a Python analysis tool first, then passes the raw result to the L
 | 3 | **Statistics** | Descriptive stats, skewness, categorical value counts |
 | 4 | **Outliers** | IQR-based detection — count, bounds, example values |
 | 5 | **Correlation** | Pearson matrix, multicollinearity flags, heatmap |
-| 6 | **Feature Importance** | Variance ranking (numeric), entropy ranking (categorical) |
+| 6 | **Feature Importance** | Target-aware correlation ranking (powered by robust multi-tiered target detection), falling back to variance (numeric) and entropy (categorical) ranking |
 | 7 | **Synthesis** | Full EDA narrative — overview, issues, patterns, recommendations |
 | 8 | **Model Recommendation** | Infers problem type, recommends models, flags uncertainty, suggests metrics |
 | 9 | **Feature Engineering** | Suggests concrete new features: log transforms, bins, interactions, encodings |
 
-**Note:** Feature engineering code is executed in a restricted sandbox (`__builtins__` stripped, only `pd`, `np`, and `df` exposed) with a 2-attempt reflection loop that feeds errors back to the LLM for self-correction.
+**Note:** Feature engineering code is executed in a restricted sandbox (`__builtins__` stripped, only `pd`, `np`, and `df` exposed) with a 2-attempt reflection loop that feeds errors back to the LLM for self-correction. The pipeline uses robust multi-tiered target detection to completely hide the target variable from the LLM prompt and sandbox to prevent data leakage, and aggressively checks newly generated features to reject trivial copies (correlation > 0.999) of existing features.
 
 <img width="482" height="283" alt="image" src="https://github.com/user-attachments/assets/b716f1f9-e3d6-4cd3-b621-0e239cf0036f" />
 <img width="1070" height="352" alt="image" src="https://github.com/user-attachments/assets/722b1a1c-5b75-4838-bedd-9df220b3f19d" />
@@ -67,7 +67,7 @@ Each node runs a Python analysis tool first, then passes the raw result to the L
 
 Install [Ollama](https://ollama.com) and pull the model:
 ```bash
-ollama pull llama3.1
+ollama pull llama3.2
 ```
 
 ### 2. Install dependencies
@@ -127,7 +127,7 @@ python pipeline.py
 | [Streamlit](https://streamlit.io/) | Interactive web dashboard |
 | [LangGraph](https://github.com/langchain-ai/langgraph) | Agent orchestration & state management |
 | [LangChain + Ollama](https://python.langchain.com/) | Local LLM inference |
-| [Llama 3.1](https://ollama.com/library/llama3.1) | The underlying language model |
+| [Llama 3.2](https://ollama.com/library/llama3.2) | The underlying language model |
 | [pandas](https://pandas.pydata.org/) | Data analysis |
 | [seaborn / matplotlib](https://seaborn.pydata.org/) | Correlation heatmap |
 | [scipy](https://scipy.org/) | Entropy calculation for feature importance |
@@ -152,7 +152,7 @@ EDAgent/
 
 ## Why local?
 
-No API keys. No data sent to the cloud. Everything runs on your machine via Ollama. Swap `llama3.1` for any other Ollama-compatible model by changing one line in `pipeline.py`:
+No API keys. No data sent to the cloud. Everything runs on your machine via Ollama. Swap `llama3.2` for any other Ollama-compatible model by changing one line in `pipeline.py`:
 
 ```python
 llm = ChatOllama(model="your-model-here")

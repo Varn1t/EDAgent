@@ -91,10 +91,10 @@ def run_outliers(df: pd.DataFrame) -> dict:
         outlier_rows = df[(df[col] < lower) | (df[col] > upper)]
         if len(outlier_rows) > 0:
             report[col] = {
-                "count": len(outlier_rows),
+                "total_outlier_count": len(outlier_rows),
                 "lower_bound": round(lower, 2),
                 "upper_bound": round(upper, 2),
-                "outlier_values": outlier_rows[col].tolist()[:10]
+                "sample_of_10_outlier_values": outlier_rows[col].tolist()[:10]
             }
     
     # Sort by outlier count and keep only top 15 to prevent context overload
@@ -143,30 +143,51 @@ def run_importance(df: pd.DataFrame) -> dict:
     # Heuristic to drop ID-like columns and target-like variables from importance ranking
     id_cols = [col for col in df.columns if df[col].nunique() == len(df) or 'id' in col.lower() or 'pid' in col.lower()]
     
-    for col in df.select_dtypes(include="number").columns:
-        if col in id_cols: continue
-        mean_val = df[col].mean()
-        var_val = df[col].var()
-        # Use Coefficient of Variation to normalize variance across different scales
-        cv = var_val / (mean_val**2) if mean_val != 0 else var_val
-        importance[col] = {
-            "type": "numeric",
-            "variance": round(float(var_val), 4),
-            "coeff_variation": round(float(cv), 4),
-            "missing_pct": round(float(df[col].isnull().mean() * 100), 2)
-        }
-    for col in df.select_dtypes(exclude="number").columns:
-        if col in id_cols: continue
-        counts = df[col].value_counts(normalize=True)
-        importance[col] = {
-            "type": "categorical",
-            "entropy": round(float(entropy(counts)), 4),
-            "unique_values": int(df[col].nunique()),
-            "missing_pct": round(float(df[col].isnull().mean() * 100), 2)
-        }
+    target_col = None
+    for c in df.columns:
+        cl = c.lower().replace(" ", "").replace("_", "")
+        if cl in ["saleprice", "price", "target", "label", "class"]:
+            target_col = c
+            break
+    if not target_col:
+        for c in df.columns:
+            if ("price" in c.lower() or "target" in c.lower()) and pd.api.types.is_numeric_dtype(df[c]):
+                target_col = c
+                break
+
+    numeric = df.select_dtypes(include="number")
+
+    if target_col and target_col in numeric.columns:
+        # rank by correlation with target — much more meaningful
+        correlations = numeric.corr()[target_col].drop(target_col).abs().sort_values(ascending=False)
+        importance = {col: {"type": "numeric", "correlation_with_target": round(float(val), 4)} 
+                      for col, val in correlations.items() if col not in id_cols}
+    else:
+        for col in numeric.columns:
+            if col in id_cols: continue
+            mean_val = df[col].mean()
+            var_val = df[col].var()
+            # Use Coefficient of Variation to normalize variance across different scales
+            cv = var_val / (mean_val**2) if mean_val != 0 else var_val
+            importance[col] = {
+                "type": "numeric",
+                "variance": round(float(var_val), 4),
+                "coeff_variation": round(float(cv), 4),
+                "missing_pct": round(float(df[col].isnull().mean() * 100), 2)
+            }
+        for col in df.select_dtypes(exclude="number").columns:
+            if col in id_cols: continue
+            counts = df[col].value_counts(normalize=True)
+            importance[col] = {
+                "type": "categorical",
+                "entropy": round(float(entropy(counts)), 4),
+                "unique_values": int(df[col].nunique()),
+                "missing_pct": round(float(df[col].isnull().mean() * 100), 2)
+            }
+
     return dict(sorted(
         importance.items(),
-        key=lambda x: x[1].get("coeff_variation", x[1].get("entropy", 0)),
+        key=lambda x: x[1].get("correlation_with_target", x[1].get("coeff_variation", x[1].get("entropy", 0))),
         reverse=True
     )[:15])
 
@@ -197,7 +218,7 @@ def stats_node(state: GraphState) -> dict:
 def outlier_node(state: GraphState) -> dict:
     _notify("Running outlier agent...")
     result = run_outliers(state["df"])
-    return {"outliers": summarize(result, "Summarize which columns have outliers and how severe based on the 'count' value provided. Pay attention to the actual 'count' number, not just the length of the sample list.")}
+    return {"outliers": summarize(result, "Summarize which columns have outliers based on 'total_outlier_count'. DO NOT mistake the length of 'sample_of_10_outlier_values' for the total count.")}
 
 def correlation_node(state: GraphState) -> dict:
     _notify("Running correlation agent...")
@@ -238,7 +259,7 @@ You are a senior ML engineer. Based on the EDA findings below, recommend which M
 
 Your response must include:
 1. **Problem Type**: Classification, Regression, or Clustering? Which column is the likely target and why?
-2. **Primary Model Recommendation**: Best model with justification based on data characteristics.
+2. **Primary Model Recommendation**: Best model with justification. (Hint: For tabular regression tasks like housing data, Gradient Boosting algorithms like GBR/XGBoost typically outperform Random Forest).
 3. **Evaluation Metrics**: Recommend the best metrics to evaluate the model (e.g., accuracy_score vs recall_score for classification, RMSE vs MAE for regression) and explicitly explain WHY based on the dataset (e.g., class imbalance, cost of false negatives).
 4. **Uncertainty Check**: If torn between 2 models, say so explicitly and recommend Random Forest as a neutral benchmark. Specify which metric to compare on and why.
 5. **Self-Analysis**: What could go wrong with your recommendation? What assumptions are you making?
@@ -256,21 +277,38 @@ NARRATIVE: {state['narrative']}
 
 def feature_eng_node(state: GraphState) -> dict:
     _notify("Running feature engineering agent...")
-    df: pd.DataFrame = state["df"]
+    df_full: pd.DataFrame = state["df"]
+    
+    target_col = None
+    for c in df_full.columns:
+        cl = c.lower().replace(" ", "").replace("_", "")
+        if cl in ["saleprice", "price", "target", "label", "class"]:
+            target_col = c
+            break
+    if not target_col:
+        for c in df_full.columns:
+            if ("price" in c.lower() or "target" in c.lower()) and pd.api.types.is_numeric_dtype(df_full[c]):
+                target_col = c
+                break
+                
+    df = df_full.drop(columns=[target_col]) if target_col and target_col in df_full.columns else df_full.copy()
+
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
     categorical_cols = df.select_dtypes(exclude="number").columns.tolist()
     skewness = df[numeric_cols].skew().round(2).to_dict() if numeric_cols else {}
     value_counts_sample = {col: df[col].value_counts().head(3).to_dict() for col in categorical_cols}
 
     prompt = f"""
-You are a feature engineering expert. Suggest 5-8 concrete new features to create before modeling.
+You are a feature engineering expert. Suggest 5-8 concrete, domain-specific new features to create before modeling.
 
 IMPORTANT RULES FOR PANDAS CODE:
-1. For log transforms, ALWAYS use np.log1p() instead of np.log() to avoid errors with zero values (e.g. Pool Area).
-2. NEVER use pd.cut() or pd.qcut() on categorical/string columns.
-3. Do NOT use pd.to_datetime() on plain integer columns unless explicitly formatting a known year/month correctly.
-4. Assume the dataframe is named `df`, pandas is `pd`, and numpy is `np`.
-5. You MUST wrap the actual executable pandas code for each feature inside a ```python ... ``` block so it can be tested.
+1. ONLY use column names explicitly listed in the 'Numeric columns' and 'Categorical columns' lists below. Do NOT hallucinate columns.
+2. NEVER reference computed metadata or statistics (like missing values, outliers, or shape) as if they were dataframe columns.
+3. For log transforms, ALWAYS use np.log1p() instead of np.log() to avoid errors with zero values.
+4. NEVER use pd.cut() or pd.qcut() on categorical/string columns.
+5. Do NOT use pd.to_datetime() on plain integer columns unless explicitly formatting a known year/month correctly.
+6. Assume the dataframe is named `df`, pandas is `pd`, and numpy is `np`.
+7. You MUST wrap the actual executable pandas code for each feature inside a ```python ... ``` block so it can be tested.
 
 For each, use this format:
 **Feature Name**: <name>
@@ -282,10 +320,6 @@ df['new_feature'] = ...
 
 Numeric columns: {numeric_cols}
 Categorical columns: {categorical_cols}
-Skewness: {skewness}
-Value counts sample: {value_counts_sample}
-Schema: {state['schema']}
-Stats: {state['stats']}
 Model context: {state['model_recommendation']}
 """
     import re
@@ -303,6 +337,9 @@ Model context: {state['model_recommendation']}
             
         errors = []
         df_test = df.head(100).copy() # test on a sample
+        
+        original_cols = set(df_test.columns)
+
         safe_globals = {
             "__builtins__": {},
             "pd": pd,
@@ -313,6 +350,13 @@ Model context: {state['model_recommendation']}
         for code in code_blocks:
             try:
                 exec(code, safe_globals)
+                for new_col in set(df_test.columns) - original_cols:
+                    if pd.api.types.is_numeric_dtype(df_test[new_col]):
+                        correlation_with_existing = df_test.select_dtypes(include="number").corrwith(df_test[new_col]).drop(new_col, errors="ignore")
+                        if not correlation_with_existing.isna().all() and correlation_with_existing.abs().max() > 0.999:
+                            errors.append(f"Code: {code.strip()}\nError: TrivialFeatureError: '{new_col}' is highly correlated (>0.999) with an existing feature.")
+                            df_test = df_test.drop(columns=[new_col])
+                original_cols = set(df_test.columns)
             except Exception as e:
                 errors.append(f"Code: {code.strip()}\nError: {type(e).__name__}: {str(e)}")
                 
@@ -437,7 +481,7 @@ footer{{text-align:center;color:#475569;font-size:.8rem;padding:2rem 0 1rem;bord
   </div>
 </header>
 {body}
-<footer>Generated by EDAgent &middot; LangGraph + Ollama (llama3.1)</footer>
+<footer>Generated by EDAgent &middot; LangGraph + Ollama (llama3.2)</footer>
 </div></body></html>"""
 
 # ── CLI entrypoint ─────────────────────────────────────────────────────────
