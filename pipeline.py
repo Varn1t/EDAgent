@@ -89,41 +89,74 @@ def run_outliers(df: pd.DataFrame) -> dict:
         lower = Q1 - 1.5 * IQR
         upper = Q3 + 1.5 * IQR
         outlier_rows = df[(df[col] < lower) | (df[col] > upper)]
-        report[col] = {
-            "count": len(outlier_rows),
-            "lower_bound": round(lower, 2),
-            "upper_bound": round(upper, 2),
-            "outlier_values": outlier_rows[col].tolist()[:10]
-        }
-    return report
+        if len(outlier_rows) > 0:
+            report[col] = {
+                "count": len(outlier_rows),
+                "lower_bound": round(lower, 2),
+                "upper_bound": round(upper, 2),
+                "outlier_values": outlier_rows[col].tolist()[:10]
+            }
+    
+    # Sort by outlier count and keep only top 15 to prevent context overload
+    sorted_report = dict(sorted(report.items(), key=lambda x: x[1]['count'], reverse=True)[:15])
+    return sorted_report
 
 def run_correlation(df: pd.DataFrame) -> dict:
     numeric = df.select_dtypes(include="number")
     if numeric.shape[1] < 2:
         return {"error": "Need at least 2 numeric columns for correlation"}
+    
     corr = numeric.corr().round(2)
+    
+    # Extract only the strongest correlations for the LLM to prevent context overload
+    strong_pairs = []
+    for i in range(len(corr.columns)):
+        for j in range(i+1, len(corr.columns)):
+            val = corr.iloc[i, j]
+            if abs(val) >= 0.5:
+                strong_pairs.append({
+                    "feature_1": corr.columns[i],
+                    "feature_2": corr.columns[j],
+                    "correlation": val
+                })
+    strong_pairs = sorted(strong_pairs, key=lambda x: abs(x["correlation"]), reverse=True)
+    
     os.makedirs("output", exist_ok=True)
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f")
+    plt.figure(figsize=(10, 8))
+    # Turn off annotations if there are too many columns to prevent text overlapping
+    annot = True if numeric.shape[1] <= 15 else False
+    sns.heatmap(corr, annot=annot, cmap="coolwarm", fmt=".2f")
     plt.title("Correlation Heatmap")
     plt.tight_layout()
     plt.savefig("output/correlation_heatmap.png", dpi=150)
     plt.close()
+    
     return {
-        "correlation_matrix": corr.to_dict(),
+        "strongest_correlations": strong_pairs[:20], # Top 20 pairs
         "heatmap_saved": "output/correlation_heatmap.png"
     }
 
 def run_importance(df: pd.DataFrame) -> dict:
     from scipy.stats import entropy
     importance = {}
+    
+    # Heuristic to drop ID-like columns and target-like variables from importance ranking
+    id_cols = [col for col in df.columns if df[col].nunique() == len(df) or 'id' in col.lower() or 'pid' in col.lower()]
+    
     for col in df.select_dtypes(include="number").columns:
+        if col in id_cols: continue
+        mean_val = df[col].mean()
+        var_val = df[col].var()
+        # Use Coefficient of Variation to normalize variance across different scales
+        cv = var_val / (mean_val**2) if mean_val != 0 else var_val
         importance[col] = {
             "type": "numeric",
-            "variance": round(float(df[col].var()), 4),
+            "variance": round(float(var_val), 4),
+            "coeff_variation": round(float(cv), 4),
             "missing_pct": round(float(df[col].isnull().mean() * 100), 2)
         }
     for col in df.select_dtypes(exclude="number").columns:
+        if col in id_cols: continue
         counts = df[col].value_counts(normalize=True)
         importance[col] = {
             "type": "categorical",
@@ -133,9 +166,9 @@ def run_importance(df: pd.DataFrame) -> dict:
         }
     return dict(sorted(
         importance.items(),
-        key=lambda x: x[1].get("variance", x[1].get("entropy", 0)),
+        key=lambda x: x[1].get("coeff_variation", x[1].get("entropy", 0)),
         reverse=True
-    ))
+    )[:15])
 
 # ── LLM summarizer ─────────────────────────────────────────────────────────
 
@@ -164,7 +197,7 @@ def stats_node(state: GraphState) -> dict:
 def outlier_node(state: GraphState) -> dict:
     _notify("Running outlier agent...")
     result = run_outliers(state["df"])
-    return {"outliers": summarize(result, "Summarize which columns have outliers and how severe.")}
+    return {"outliers": summarize(result, "Summarize which columns have outliers and how severe based on the 'count' value provided. Pay attention to the actual 'count' number, not just the length of the sample list.")}
 
 def correlation_node(state: GraphState) -> dict:
     _notify("Running correlation agent...")
@@ -232,12 +265,20 @@ def feature_eng_node(state: GraphState) -> dict:
     prompt = f"""
 You are a feature engineering expert. Suggest 5-8 concrete new features to create before modeling.
 
+IMPORTANT RULES FOR PANDAS CODE:
+1. For log transforms, ALWAYS use np.log1p() instead of np.log() to avoid errors with zero values (e.g. Pool Area).
+2. NEVER use pd.cut() or pd.qcut() on categorical/string columns.
+3. Do NOT use pd.to_datetime() on plain integer columns unless explicitly formatting a known year/month correctly.
+4. Assume the dataframe is named `df`, pandas is `pd`, and numpy is `np`.
+5. You MUST wrap the actual executable pandas code for each feature inside a ```python ... ``` block so it can be tested.
+
 For each, use this format:
 **Feature Name**: <name>
-**How to create it**: <pandas/numpy code or clear description>
+**How to create it**: 
+```python
+df['new_feature'] = ...
+```
 **Why it helps**: <one sentence rationale>
-
-Consider: log/sqrt transforms for skewed columns, binning, interaction features, encoding improvements, date extraction, null indicator flags.
 
 Numeric columns: {numeric_cols}
 Categorical columns: {categorical_cols}
@@ -245,11 +286,47 @@ Skewness: {skewness}
 Value counts sample: {value_counts_sample}
 Schema: {state['schema']}
 Stats: {state['stats']}
-Correlation: {state['correlation']}
 Model context: {state['model_recommendation']}
 """
-    final = llm.invoke([HumanMessage(content=prompt)])
-    return {"feature_engineering": final.content if final.content else "[No response]"}
+    import re
+    import numpy as np
+
+    # Retry loop to catch and fix code execution errors
+    for attempt in range(2):
+        final = llm.invoke([HumanMessage(content=prompt)])
+        content = final.content if final.content else "[No response]"
+        
+        # Extract python code blocks
+        code_blocks = re.findall(r'```python\n(.*?)\n```', content, re.DOTALL)
+        if not code_blocks:
+            break
+            
+        errors = []
+        df_test = df.head(100).copy() # test on a sample
+        safe_globals = {
+            "__builtins__": {},
+            "pd": pd,
+            "np": np,
+            "df": df_test
+        }
+        
+        for code in code_blocks:
+            try:
+                exec(code, safe_globals)
+            except Exception as e:
+                errors.append(f"Code: {code.strip()}\nError: {type(e).__name__}: {str(e)}")
+                
+        if not errors:
+            break # All code snippets executed successfully
+            
+        # Append errors to prompt and ask LLM to fix them
+        error_msg = "\n\nYour previous code generated the following errors when tested. Please fix them:\n" + "\n---\n".join(errors)
+        prompt += error_msg
+
+    if errors:
+        content += "\n\n*(Note: Some of the suggested code blocks failed automated testing and may need manual adjustments.)*"
+
+    return {"feature_engineering": content}
 
 # ── Graph ──────────────────────────────────────────────────────────────────
 

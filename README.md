@@ -40,6 +40,8 @@ schema → quality → stats → outliers → correlation → importance → syn
 
 Each node runs a Python analysis tool first, then passes the raw result to the LLM to reason over and summarize in plain English.
 
+**Architecture Note:** All Python computations (correlation matrices, outlier IQR bounds, descriptive stats) run on the **full dataset** to ensure statistical accuracy. However, the data passed to the LLM is intentionally capped (e.g., only the top 20 strongest correlations or top 15 outlier features) to prevent context window overload and hallucination.
+
 | # | Agent | What it analyzes |
 |---|---|---|
 | 1 | **Schema** | Shape, column types, null counts per column |
@@ -51,6 +53,9 @@ Each node runs a Python analysis tool first, then passes the raw result to the L
 | 7 | **Synthesis** | Full EDA narrative — overview, issues, patterns, recommendations |
 | 8 | **Model Recommendation** | Infers problem type, recommends models, flags uncertainty, suggests metrics |
 | 9 | **Feature Engineering** | Suggests concrete new features: log transforms, bins, interactions, encodings |
+
+**Note:** Feature engineering code is executed in a restricted sandbox (`__builtins__` stripped, only `pd`, `np`, and `df` exposed) with a 2-attempt reflection loop that feeds errors back to the LLM for self-correction.
+
 <img width="482" height="283" alt="image" src="https://github.com/user-attachments/assets/b716f1f9-e3d6-4cd3-b621-0e239cf0036f" />
 <img width="1070" height="352" alt="image" src="https://github.com/user-attachments/assets/722b1a1c-5b75-4838-bedd-9df220b3f19d" />
 

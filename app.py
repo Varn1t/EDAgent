@@ -157,7 +157,11 @@ uploaded = st.file_uploader(
 # ── Dataset preview ────────────────────────────────────────────────────────
 
 if uploaded is not None:
-    df = pd.read_csv(uploaded)
+    try:
+        df = pd.read_csv(uploaded)
+    except UnicodeDecodeError:
+        uploaded.seek(0)
+        df = pd.read_csv(uploaded, encoding='latin1')
     dataset_name = uploaded.name
 
     st.markdown("### Dataset Preview")
