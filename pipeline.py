@@ -98,7 +98,11 @@ def run_outliers(df: pd.DataFrame) -> dict:
             }
     
     # Sort by outlier count and keep only top 15 to prevent context overload
-    sorted_report = dict(sorted(report.items(), key=lambda x: x[1]['count'], reverse=True)[:15])
+    sorted_report = dict(sorted(
+        report.items(), 
+        key=lambda x: x[1]['total_outlier_count'] if isinstance(x[1], dict) else x[1], 
+        reverse=True
+    )[:15])
     return sorted_report
 
 def run_correlation(df: pd.DataFrame) -> dict:
