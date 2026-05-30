@@ -140,7 +140,7 @@ st.markdown("""
 <div class="eda-header">
     <h1>EDAgent</h1>
     <h3 style="color: #cbd5e1; font-weight: 500; font-size: 1.4rem; margin-top: -0.5rem; margin-bottom: 1rem;">Exploratory Data Analysis <span style="color: #60a5fa;">+</span> AI Agent</h3>
-    <p>Upload a CSV. Nine AI agents analyze it. Get a complete EDA report — running fully local.</p>
+    <p>Upload a CSV or Excel dataset. Nine AI agents analyze it. Get a complete EDA report — running fully local.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -149,8 +149,8 @@ st.markdown("---")
 # ── File Upload ────────────────────────────────────────────────────────────
 
 uploaded = st.file_uploader(
-    "Upload your CSV dataset",
-    type=["csv"],
+    "Upload your CSV or Excel dataset",
+    type=["csv", "xlsx", "xls"],
     help="The pipeline runs locally via Ollama — your data never leaves your machine."
 )
 
@@ -158,7 +158,10 @@ uploaded = st.file_uploader(
 
 if uploaded is not None:
     try:
-        df = pd.read_csv(uploaded)
+        if uploaded.name.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(uploaded)
+        else:
+            df = pd.read_csv(uploaded)
     except UnicodeDecodeError:
         uploaded.seek(0)
         df = pd.read_csv(uploaded, encoding='latin1')
@@ -270,9 +273,10 @@ if "result" in st.session_state:
     st.markdown("### Export Report")
 
     html_report = pipeline.build_html_report(result, name, df_stored)
+    base_name = os.path.splitext(name)[0]
     st.download_button(
         label="📄 Download HTML Report",
         data=html_report.encode("utf-8"),
-        file_name=f"eda_report_{name.replace('.csv', '')}.html",
+        file_name=f"eda_report_{base_name}.html",
         mime="text/html",
     )

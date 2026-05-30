@@ -4,7 +4,7 @@
 
 Your personal Exploratory Data Analyst + AI Agent
 
-**Drop in a CSV. Get a complete EDA — automatically.**
+**Drop in a CSV or Excel dataset. Get a complete EDA — automatically.**
 <img width="1878" height="867" alt="image" src="https://github.com/user-attachments/assets/5919cf06-af14-452a-90ad-ba3caaf27906" />
 
 
@@ -21,7 +21,7 @@ Nine specialized AI agents analyze your dataset, then generate a polished HTML r
 
 ## What it does
 
-You give it a CSV. It spins up a **9-stage LangGraph pipeline** where each node is an AI agent that analyzes a different aspect of your data, writes a summary, and passes its findings to the next stage. At the end, you get:
+You give it a CSV or Excel dataset. It spins up a **9-stage LangGraph pipeline** where each node is an AI agent that analyzes a different aspect of your data, writes a summary, and passes its findings to the next stage. At the end, you get:
 
 - An **interactive Streamlit dashboard** with tabbed results and live progress
 - A **rich, color-coded terminal output** (if run via CLI)
@@ -79,13 +79,15 @@ pip install -r requirements.txt
 ```bash
 streamlit run app.py
 ```
-This will open the EDAgent web dashboard in your browser. Just drag and drop your CSV into the upload area!
+This will open the EDAgent web dashboard in your browser. Just drag and drop your CSV or Excel dataset into the upload area!
 
 #### Running in CLI (Alternative)
 If you prefer the terminal, you can run the pipeline directly:
 ```bash
-# On your own dataset
+# On your own dataset (CSV or Excel)
 python pipeline.py your_dataset.csv
+# or
+python pipeline.py your_dataset.xlsx
 
 # With built-in test data
 python pipeline.py

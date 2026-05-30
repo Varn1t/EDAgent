@@ -502,7 +502,10 @@ if __name__ == "__main__":
     dataset_name = "test_data"
     if len(sys.argv) > 1:
         dataset_name = os.path.basename(sys.argv[1])
-        df = pd.read_csv(sys.argv[1])
+        if dataset_name.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(sys.argv[1])
+        else:
+            df = pd.read_csv(sys.argv[1])
     else:
         df = pd.DataFrame({
             "age":    [25, None, 30, 25, 45, 200, 22],

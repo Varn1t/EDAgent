@@ -7,3 +7,4 @@ matplotlib
 scipy
 rich
 streamlit
+openpyxl
