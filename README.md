@@ -30,7 +30,8 @@ You give it a CSV or Excel dataset. It spins up a **10-stage LangGraph pipeline*
 - A **`correlation_heatmap.png`** saved to `output/`
 - A **cleaned dataset** ready to download as CSV — automatically fixed by the cleaning agent
 
-<img alt="EDAgent pipeline progress" src="assets/pipeline_progress.png" />
+<img width="1867" height="242" alt="image" src="https://github.com/user-attachments/assets/5f972bea-8bee-4579-a4fb-ccb036983c65" />
+
 
 ---
 
