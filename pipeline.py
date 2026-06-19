@@ -41,6 +41,7 @@ class GraphState(TypedDict):
     quality: str
     stats: str
     outliers: str
+    cleaning: str
     correlation: str
     importance: str
     narrative: str
@@ -49,7 +50,7 @@ class GraphState(TypedDict):
 
 # ── LLM ────────────────────────────────────────────────────────────────────
 
-llm = ChatOllama(model="llama3.1")
+llm = ChatOllama(model="llama3.2")
 
 # ── Python Analysis Tools ──────────────────────────────────────────────────
 
@@ -70,13 +71,24 @@ def run_quality(df: pd.DataFrame) -> dict:
 def run_stats(df: pd.DataFrame) -> dict:
     numeric = df.select_dtypes(include="number")
     categorical = df.select_dtypes(exclude="number")
-    return {
-        "describe": numeric.describe().round(2).to_dict(),
-        "skewness": numeric.skew().round(2).to_dict(),
-        "value_counts": {
+    
+    describe_dict = {}
+    skewness_dict = {}
+    if numeric.shape[1] > 0:
+        describe_dict = numeric.describe().round(2).to_dict()
+        skewness_dict = numeric.skew().round(2).to_dict()
+        
+    value_counts_dict = {}
+    if categorical.shape[1] > 0:
+        value_counts_dict = {
             col: df[col].value_counts().head(5).to_dict()
             for col in categorical.columns
         }
+        
+    return {
+        "describe": describe_dict,
+        "skewness": skewness_dict,
+        "value_counts": value_counts_dict
     }
 
 def run_outliers(df: pd.DataFrame) -> dict:
@@ -223,6 +235,131 @@ def outlier_node(state: GraphState) -> dict:
     _notify("Running outlier agent...")
     result = run_outliers(state["df"])
     return {"outliers": summarize(result, "Summarize which columns have outliers based on 'total_outlier_count'. DO NOT mistake the length of 'sample_of_10_outlier_values' for the total count.")}
+
+def cleaning_node(state: GraphState) -> dict:
+    _notify("Running cleaning agent...")
+    df_full: pd.DataFrame = state["df"]
+    import numpy as np
+
+    cleaned_df = df_full.copy()
+    pre_clean_log = []
+
+    # ── 1. Standardise null-like strings → NaN (must come first) ───────────
+    NULL_LIKE = {"unknown", "n/a", "na", "null", "none", "nan", "-", "", "?"}
+    for col in cleaned_df.select_dtypes(include="object").columns:
+        mask = cleaned_df[col].str.strip().str.lower().isin(NULL_LIKE)
+        if mask.any():
+            pre_clean_log.append(
+                f"- **Null-like strings** in `{col}`: {int(mask.sum())} value(s) replaced with NaN."
+            )
+            cleaned_df.loc[mask, col] = np.nan
+
+    # ── 2. Strip currency / symbol formatting and cast to numeric ──────────
+    for col in cleaned_df.select_dtypes(include="object").columns:
+        stripped = cleaned_df[col].str.replace(r"[$£€,%\s]", "", regex=True)
+        converted = pd.to_numeric(stripped, errors="coerce")
+        non_null = cleaned_df[col].notna()
+        if non_null.sum() > 0 and (converted[non_null].notna().sum() / non_null.sum()) > 0.5:
+            if not pd.api.types.is_numeric_dtype(cleaned_df[col]):
+                pre_clean_log.append(
+                    f"- **Currency/symbol stripping** on `{col}`: converted to numeric."
+                )
+                cleaned_df[col] = converted
+
+    # ── 3. Drop exact duplicate rows (AFTER normalisation so values match) ──
+    n_before = len(cleaned_df)
+    cleaned_df.drop_duplicates(inplace=True)
+    cleaned_df.reset_index(drop=True, inplace=True)
+    dropped = n_before - len(cleaned_df)
+    if dropped:
+        pre_clean_log.append(f"- **Duplicates removed**: {dropped} exact duplicate row(s) dropped.")
+
+    # ── 4. Impute remaining missing values ─────────────────────────────────
+    for col in cleaned_df.columns:
+        n_missing = int(cleaned_df[col].isna().sum())
+        if n_missing == 0:
+            continue
+        if pd.api.types.is_numeric_dtype(cleaned_df[col]):
+            fill_val = cleaned_df[col].median()
+            cleaned_df[col] = cleaned_df[col].fillna(fill_val)
+            pre_clean_log.append(
+                f"- **Missing numeric** in `{col}`: {n_missing} value(s) filled with median ({fill_val:.2f})."
+            )
+        else:
+            mode_vals = cleaned_df[col].mode()
+            fill_val = mode_vals[0] if not mode_vals.empty else "Unknown"
+            cleaned_df[col] = cleaned_df[col].fillna(fill_val)
+            pre_clean_log.append(
+                f"- **Missing categorical** in `{col}`: {n_missing} value(s) filled with mode ('{fill_val}')."
+            )
+
+    pre_clean_summary = "\n".join(pre_clean_log) if pre_clean_log else "- No deterministic issues detected."
+
+    # ── LLM second-pass: catch anything deterministic cleaning missed ───────
+    prompt = f"""
+You are a data cleaning expert. A deterministic pre-cleaner already handled the following on `df`:
+{pre_clean_summary}
+
+Original data quality findings for context:
+SCHEMA: {state['schema']}
+QUALITY: {state['quality']}
+OUTLIERS: {state['outliers']}
+
+Suggest ONLY additional cleaning steps the pre-cleaner may have missed (e.g. outlier capping,
+string normalisation like title-casing names, fixing phone number formats).
+
+RULES:
+1. ONLY reference columns listed in the schema.
+2. Do NOT redo duplicates, null imputation, or currency stripping — already done.
+3. Assume `df`, `pd`, `np` are available.
+4. Wrap each code action in a ```python ... ``` block.
+5. Write a brief markdown bullet summary.
+If nothing more is needed, respond: "No additional cleaning required."
+"""
+    errors = []
+    content = "No additional cleaning required."
+    for attempt in range(2):
+        final = llm.invoke([HumanMessage(content=prompt)])
+        content = final.content if final.content else "[No response]"
+
+        if "no additional cleaning required" in content.lower():
+            break
+
+        code_blocks = re.findall(r'```python\n(.*?)\n```', content, re.DOTALL)
+        if not code_blocks:
+            break
+
+        errors = []
+        df_test = cleaned_df.head(100).copy()
+        safe_globals = {"__builtins__": {}, "pd": pd, "np": np, "df": df_test}
+
+        for code in code_blocks:
+            try:
+                exec(code, safe_globals)
+            except Exception as e:
+                errors.append(f"Code: {code.strip()}\nError: {type(e).__name__}: {str(e)}")
+
+        if not errors:
+            full_globals = {"__builtins__": {}, "pd": pd, "np": np, "df": cleaned_df}
+            try:
+                for code in code_blocks:
+                    exec(code, full_globals)
+                cleaned_df = full_globals["df"]
+                break
+            except Exception as e:
+                errors.append(f"Full dataset execution failed: {type(e).__name__}: {str(e)}")
+
+        prompt += "\n\nErrors encountered:\n" + "\n---\n".join(errors)
+
+    if errors:
+        content += "\n\n*(Some LLM-suggested steps failed and may need manual adjustment.)*"
+
+    full_summary = (
+        f"### Deterministic Pre-Cleaning\n{pre_clean_summary}\n\n"
+        f"### AI Agent Additional Cleaning\n{content}"
+    )
+    return {"df": cleaned_df, "cleaning": full_summary}
+
 
 def correlation_node(state: GraphState) -> dict:
     _notify("Running correlation agent...")
@@ -383,6 +520,7 @@ _graph.add_node("schema",      schema_node)
 _graph.add_node("quality",     quality_node)
 _graph.add_node("stats",       stats_node)
 _graph.add_node("outliers",    outlier_node)
+_graph.add_node("cleaning",    cleaning_node)
 _graph.add_node("correlation", correlation_node)
 _graph.add_node("importance",  importance_node)
 _graph.add_node("synthesis",   synthesis_node)
@@ -393,7 +531,8 @@ _graph.set_entry_point("schema")
 _graph.add_edge("schema",      "quality")
 _graph.add_edge("quality",     "stats")
 _graph.add_edge("stats",       "outliers")
-_graph.add_edge("outliers",    "correlation")
+_graph.add_edge("outliers",    "cleaning")
+_graph.add_edge("cleaning",    "correlation")
 _graph.add_edge("correlation", "importance")
 _graph.add_edge("importance",  "synthesis")
 _graph.add_edge("synthesis",   "model_rec")
@@ -413,6 +552,7 @@ def run_pipeline(df: pd.DataFrame, on_step: Optional[Callable] = None) -> dict:
         "quality":             "",
         "stats":               "",
         "outliers":            "",
+        "cleaning":            "",
         "correlation":         "",
         "importance":          "",
         "narrative":           "",
@@ -446,6 +586,7 @@ def build_html_report(result: dict, dataset_name: str, df: pd.DataFrame) -> str:
         section("Data Quality",                "#f59e0b", result["quality"]) +
         section("Statistics",                  "#818cf8", result["stats"]) +
         section("Outliers",                    "#f87171", result["outliers"]) +
+        section("Data Cleaning",               "#ec4899", result["cleaning"]) +
         section("Correlation",                 "#a78bfa", result["correlation"],
                 extra=f'<div class="heatmap-wrap">{heatmap_tag}</div>' if heatmap_tag else "") +
         section("Feature Importance",          "#34d399", result["importance"]) +
@@ -530,7 +671,8 @@ if __name__ == "__main__":
         ("Data Quality",         "quality",              "yellow"),
         ("Statistics",           "stats",                "blue"),
         ("Outliers",             "outliers",             "red"),
-        ("Correlation",          "correlation",          "magenta"),
+        ("Data Cleaning",        "cleaning",             "magenta"),
+        ("Correlation",          "correlation",          "bright_magenta"),
         ("Feature Importance",   "importance",           "green"),
         ("EDA Narrative",        "narrative",            "white"),
         ("Model Recommendation", "model_recommendation", "bright_cyan"),

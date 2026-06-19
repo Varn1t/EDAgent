@@ -1,232 +1,138 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import os
 import sys
 
-# Make sure pipeline.py is importable from the same directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pipeline
 
-# ── Page config ────────────────────────────────────────────────────────────
-
+# ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="EDAgent",
+    page_title="EDAgent — AI EDA",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# ── Custom CSS ─────────────────────────────────────────────────────────────
+# ── Inject CSS (via components.html so the parser never touches it) ───────────
+_css_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "style.css")
+with open(_css_path, "r", encoding="utf-8") as _f:
+    _css = _f.read()
 
+components.html(
+    f'<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">'
+    f'<style>{_css}</style>',
+    height=0,
+    scrolling=False,
+)
+
+# ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown("""
-<style>
-  /* Dark background */
-  .stApp { background-color: #0f172a; color: #e2e8f0; }
-
-  /* Main header */
-  .eda-header {
-    text-align: center;
-    padding: 2.5rem 1rem 1rem;
-  }
-  .eda-header h1 {
-    font-size: 2.8rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, #60a5fa, #a78bfa, #34d399);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin-bottom: .4rem;
-  }
-  .eda-header p {
-    color: #94a3b8;
-    font-size: 1.1rem;
-    margin-bottom: 0;
-  }
-
-  /* Metric cards */
-  [data-testid="metric-container"] {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 12px;
-    padding: 1rem;
-  }
-
-  /* Upload area */
-  [data-testid="stFileUploader"] {
-    background: #1e293b;
-    border: 2px dashed #334155;
-    border-radius: 12px;
-    padding: 1rem;
-  }
-
-  /* Tabs */
-  .stTabs [data-baseweb="tab-list"] {
-    background: #1e293b;
-    border-radius: 8px;
-    padding: 6px;
-    display: flex;
-    gap: 12px;
-    overflow-x: auto;
-  }
-  .stTabs [data-baseweb="tab"] {
-    background: transparent;
-    color: #94a3b8;
-    border-radius: 6px;
-    font-size: .9rem;
-    padding: 8px 16px;
-    margin-right: 4px;
-    white-space: nowrap;
-  }
-  .stTabs [aria-selected="true"] {
-    background: #334155 !important;
-    color: #f1f5f9 !important;
-  }
-
-  /* Dataframe */
-  [data-testid="stDataFrame"] { border-radius: 8px; overflow: hidden; }
-
-  /* Status box */
-  [data-testid="stStatusWidget"] {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 12px;
-  }
-
-  /* Download button */
-  .stDownloadButton button {
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-weight: 600;
-    padding: .6rem 1.4rem;
-    width: 100%;
-  }
-
-  /* Primary button */
-  .stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-    color: white;
-    border: none;
-    border-radius: 10px;
-    font-size: 1rem;
-    font-weight: 700;
-    padding: .8rem 2rem;
-    width: 100%;
-    transition: opacity .2s;
-  }
-  .stButton > button[kind="primary"]:hover { opacity: .85; }
-
-  /* Divider */
-  hr { border-color: #1e293b; }
-
-  /* Hide streamlit branding */
-  #MainMenu, footer, header { visibility: hidden; }
-
-  /* Better spacing for markdown content */
-  .stMarkdown p {
-    margin-bottom: 1.5rem;
-    line-height: 1.8;
-  }
-  .stMarkdown li {
-    margin-bottom: 0.8rem;
-  }
-</style>
-""", unsafe_allow_html=True)
-
-# ── Header ─────────────────────────────────────────────────────────────────
-
-st.markdown("""
-<div class="eda-header">
-    <h1>EDAgent</h1>
-    <h3 style="color: #cbd5e1; font-weight: 500; font-size: 1.4rem; margin-top: -0.5rem; margin-bottom: 1rem;">Exploratory Data Analysis <span style="color: #60a5fa;">+</span> AI Agent</h3>
-    <p>Upload a CSV or Excel dataset. Nine AI agents analyze it. Get a complete EDA report — running fully local.</p>
+<div class="hero">
+  <div class="hero-badge"><span class="dot"></span>Powered by Ollama — 100% Local</div>
+  <h1>EDAgent</h1>
+  <p class="tagline">Upload any dataset. <strong>Ten specialized AI agents</strong> analyze
+  schema, quality, statistics, outliers, correlations, and more — in one run.</p>
 </div>
 """, unsafe_allow_html=True)
 
 st.markdown("---")
 
-# ── File Upload ────────────────────────────────────────────────────────────
-
+# ── Upload ────────────────────────────────────────────────────────────────────
 uploaded = st.file_uploader(
-    "Upload your CSV or Excel dataset",
+    "Drop your CSV or Excel file here",
     type=["csv", "xlsx", "xls"],
-    help="The pipeline runs locally via Ollama — your data never leaves your machine."
+    help="Your data stays on your machine — Ollama runs fully locally."
 )
 
-# ── Dataset preview ────────────────────────────────────────────────────────
-
+# ── Preview ───────────────────────────────────────────────────────────────────
 if uploaded is not None:
     try:
-        if uploaded.name.endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(uploaded)
-        else:
-            df = pd.read_csv(uploaded)
+        df = (pd.read_excel(uploaded)
+              if uploaded.name.endswith(('.xlsx', '.xls'))
+              else pd.read_csv(uploaded))
     except UnicodeDecodeError:
         uploaded.seek(0)
         df = pd.read_csv(uploaded, encoding='latin1')
     dataset_name = uploaded.name
 
-    st.markdown("### Dataset Preview")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Rows", f"{df.shape[0]:,}")
-    col2.metric("Columns", df.shape[1])
-    col3.metric("Missing Values", int(df.isnull().sum().sum()))
-    col4.metric("Duplicate Rows", int(df.duplicated().sum()))
+    st.markdown('<p class="section-title">Dataset preview</p>', unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Rows",           f"{df.shape[0]:,}")
+    c2.metric("Columns",        f"{df.shape[1]}")
+    c3.metric("Missing Values", f"{int(df.isnull().sum().sum()):,}")
+    c4.metric("Duplicate Rows", f"{int(df.duplicated().sum()):,}")
 
-    st.dataframe(df.head(10), width="stretch")
-
+    st.dataframe(df.head(10), use_container_width=True)
     st.markdown("---")
 
-    # ── Run button ─────────────────────────────────────────────────────────
-    if st.button("Run EDA Pipeline", type="primary"):
-        st.session_state.pop("result", None)  # clear previous run
+    # ── Run ───────────────────────────────────────────────────────────────────
+    if st.button("🚀  Run EDA Pipeline", type="primary"):
+        st.session_state.pop("result", None)
 
-        with st.status("Running EDA pipeline — this takes a few minutes...", expanded=True) as status:
-            agent_labels = {
-                "Running schema agent...":              "Schema agent",
-                "Running quality agent...":             "Quality agent",
-                "Running stats agent...":               "Statistics agent",
-                "Running outlier agent...":             "Outlier agent",
-                "Running correlation agent...":         "Correlation agent",
-                "Running feature importance agent...":  "Feature importance agent",
-                "Running synthesis agent...":           "Synthesis agent",
-                "Running model recommendation agent...":"Model recommendation agent",
-                "Running feature engineering agent...": "Feature engineering agent",
-            }
+        AGENTS = [
+            ("Running schema agent...",               "🔍 Schema"),
+            ("Running quality agent...",              "🧪 Quality"),
+            ("Running stats agent...",                "📊 Statistics"),
+            ("Running outlier agent...",              "🎯 Outliers"),
+            ("Running cleaning agent...",             "🧹 Data Cleaning"),
+            ("Running correlation agent...",          "🔗 Correlation"),
+            ("Running feature importance agent...",   "⚡ Feature Importance"),
+            ("Running synthesis agent...",            "📝 Narrative"),
+            ("Running model recommendation agent...", "🤖 Model Rec."),
+            ("Running feature engineering agent...",  "⚙️ Feature Eng."),
+        ]
+        total     = len(AGENTS)
+        label_map = {k: v for k, v in AGENTS}
+        completed = []
 
-            def on_step(msg: str):
-                label = agent_labels.get(msg, msg)
-                st.write(f"✓ {label}")
+        pb   = st.progress(0, text="Initialising pipeline…")
+        grid = st.empty()
 
-            result = pipeline.run_pipeline(df, on_step=on_step)
-            status.update(label="EDA complete!", state="complete", expanded=False)
+        def on_step(msg: str):
+            label = label_map.get(msg, msg)
+            completed.append(label)
+            pb.progress(len(completed) / total,
+                        text=f"Agent {len(completed)}/{total} — {label}")
+            items = "".join(
+                f'<div class="step-item"><span class="step-check">✓</span>{l}</div>'
+                for l in completed
+            )
+            grid.markdown(
+                f'<div class="step-list">{items}</div>',
+                unsafe_allow_html=True
+            )
 
-        st.session_state["result"] = result
-        st.session_state["df"] = df
+        result = pipeline.run_pipeline(df, on_step=on_step)
+        pb.progress(1.0, text="✅  Pipeline complete!")
+
+        st.session_state["result"]       = result
+        st.session_state["df"]           = df
         st.session_state["dataset_name"] = dataset_name
         st.rerun()
 
-# ── Results ────────────────────────────────────────────────────────────────
-
+# ── Results ───────────────────────────────────────────────────────────────────
 if "result" in st.session_state:
-    result = st.session_state["result"]
-    df_stored = st.session_state["df"]
-    name = st.session_state["dataset_name"]
+    result   = st.session_state["result"]
+    df_orig  = st.session_state["df"]
+    name     = st.session_state["dataset_name"]
+    df_clean = result.get("df", df_orig)
 
-    st.success("EDA complete! Explore your results below.")
+    st.success("✅  Analysis complete — explore every insight below.")
     st.markdown("---")
 
     tabs = st.tabs([
-        "Schema",
-        "Quality",
-        "Statistics",
-        "Outliers",
-        "Correlation",
-        "Feature Importance",
-        "EDA Narrative",
-        "Model Recommendation",
-        "Feature Engineering",
+        "🔍 Schema",
+        "🧪 Quality",
+        "📊 Statistics",
+        "🎯 Outliers",
+        "🧹 Cleaning",
+        "🔗 Correlation",
+        "⚡ Importance",
+        "📝 Narrative",
+        "🤖 Model",
+        "⚙️ Features",
     ])
 
     with tabs[0]:
@@ -234,49 +140,116 @@ if "result" in st.session_state:
         st.markdown(result["schema"])
 
     with tabs[1]:
-        st.markdown("#### Data Quality")
+        st.markdown("#### Data Quality Report")
         st.markdown(result["quality"])
 
     with tabs[2]:
-        st.markdown("#### Statistics")
+        st.markdown("#### Descriptive Statistics")
         st.markdown(result["stats"])
 
     with tabs[3]:
         st.markdown("#### Outlier Detection")
         st.markdown(result["outliers"])
 
+    # ── Cleaning tab ──────────────────────────────────────────────────────────
     with tabs[4]:
-        st.markdown("#### Correlation Analysis")
-        st.markdown(result["correlation"])
-        heatmap_path = "output/correlation_heatmap.png"
-        if os.path.exists(heatmap_path):
-            st.image(heatmap_path, caption="Pearson Correlation Heatmap", width="stretch")
+        st.markdown("#### Data Cleaning")
+
+        r  = df_orig.shape[0];   rc = df_clean.shape[0]
+        m  = int(df_orig.isnull().sum().sum())
+        mc = int(df_clean.isnull().sum().sum())
+        d  = int(df_orig.duplicated().sum())
+        dc_val = int(df_clean.duplicated().sum())
+
+        def dc_card(label, old, new):
+            if old == new:
+                inner = f'<span class="dc-same">{new}</span>'
+                cls   = ""
+            else:
+                inner = (f'<span class="dc-old">{old}</span>'
+                         f'<span class="dc-arrow">→</span>'
+                         f'<span class="dc-new">{new}</span>')
+                cls   = "improved"
+            return (f'<div class="diff-card {cls}">'
+                    f'<div class="dc-label">{label}</div>'
+                    f'<div class="dc-values">{inner}</div>'
+                    f'</div>')
+
+        st.markdown(
+            '<div class="diff-grid">'
+            + dc_card("Rows",          r,  rc)
+            + dc_card("Missing values", m,  mc)
+            + dc_card("Duplicate rows", d,  dc_val)
+            + '</div>',
+            unsafe_allow_html=True
+        )
+
+        st.markdown("##### Before & After")
+        shared = [c for c in df_orig.columns if c in df_clean.columns]
+        cb, ca = st.columns(2)
+        with cb:
+            st.markdown('<span class="ba-label before">⬛ Before</span>',
+                        unsafe_allow_html=True)
+            st.dataframe(df_orig[shared].astype(str), use_container_width=True)
+        with ca:
+            st.markdown('<span class="ba-label after">✅ After</span>',
+                        unsafe_allow_html=True)
+            st.dataframe(df_clean[shared].astype(str), use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("##### Cleaning Log")
+        st.markdown(result["cleaning"])
+
+        st.markdown("---")
+        base = os.path.splitext(name)[0]
+        st.download_button(
+            "📥 Download Cleaned CSV",
+            df_clean.to_csv(index=False).encode("utf-8"),
+            file_name=f"cleaned_{base}.csv",
+            mime="text/csv",
+            key="dl-clean"
+        )
 
     with tabs[5]:
+        st.markdown("#### Correlation Analysis")
+        st.markdown(result["correlation"])
+        if os.path.exists("output/correlation_heatmap.png"):
+            st.image("output/correlation_heatmap.png",
+                     caption="Pearson Correlation Heatmap",
+                     use_container_width=True)
+
+    with tabs[6]:
         st.markdown("#### Feature Importance")
         st.markdown(result["importance"])
 
-    with tabs[6]:
+    with tabs[7]:
         st.markdown("#### EDA Narrative")
         st.markdown(result["narrative"])
 
-    with tabs[7]:
+    with tabs[8]:
         st.markdown("#### Model Recommendation")
         st.markdown(result["model_recommendation"])
 
-    with tabs[8]:
+    with tabs[9]:
         st.markdown("#### Feature Engineering Suggestions")
         st.markdown(result["feature_engineering"])
 
-    # ── Download report ────────────────────────────────────────────────────
+    # ── Export ────────────────────────────────────────────────────────────────
     st.markdown("---")
-    st.markdown("### Export Report")
-
-    html_report = pipeline.build_html_report(result, name, df_stored)
-    base_name = os.path.splitext(name)[0]
-    st.download_button(
-        label="📄 Download HTML Report",
-        data=html_report.encode("utf-8"),
-        file_name=f"eda_report_{base_name}.html",
-        mime="text/html",
-    )
+    base = os.path.splitext(name)[0]
+    col_txt, col_btn = st.columns([3, 1])
+    with col_txt:
+        st.markdown("### Export Full Report")
+        st.markdown(
+            '<p style="color:#475569;font-size:.88rem;margin:0">'
+            'Self-contained HTML with all analysis sections.</p>',
+            unsafe_allow_html=True
+        )
+    with col_btn:
+        st.write("")
+        st.download_button(
+            "📄 Download HTML Report",
+            pipeline.build_html_report(result, name, df_orig).encode("utf-8"),
+            file_name=f"eda_report_{base}.html",
+            mime="text/html",
+        )
